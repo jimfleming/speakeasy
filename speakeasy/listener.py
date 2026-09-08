@@ -24,6 +24,7 @@ No authentication: anything that can reach the port can make this machine
 speak.
 """
 import base64
+import errno
 import hashlib
 import json
 import os
@@ -32,6 +33,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import warnings
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -44,6 +46,7 @@ import soundfile as sf
 from speakeasy import config
 
 SR = 24000
+BIND_RETRY_SECONDS = 15
 HOST = config.BIND
 PORT = config.PORT
 DEFAULT_VOICE = config.DEFAULT_VOICE
@@ -323,11 +326,17 @@ class Handler(BaseHTTPRequestHandler):
 def serve():
     """Build the HTTP server and serve forever. Raises OSError if the
     configured bind address cannot be used."""
-    try:
-        srv = ThreadingHTTPServer((HOST, PORT), Handler)
-    except OSError as e:
-        raise OSError(f"cannot bind {HOST}:{PORT} ({e}); "
-                      f"check \"bind\" in {config.CONFIG_PATH}") from e
+    deadline = time.monotonic() + BIND_RETRY_SECONDS
+    while True:
+        try:
+            srv = ThreadingHTTPServer((HOST, PORT), Handler)
+            break
+        except OSError as e:
+            if e.errno == errno.EADDRINUSE and time.monotonic() < deadline:
+                time.sleep(0.5)      # a previous instance is still shutting down
+                continue
+            raise OSError(f"cannot bind {HOST}:{PORT} ({e}); "
+                          f"check \"bind\" in {config.CONFIG_PATH}") from e
     print(f"[listener] ready on {HOST}:{PORT}", flush=True)
     try:
         srv.serve_forever()

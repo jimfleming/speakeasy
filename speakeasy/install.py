@@ -27,7 +27,9 @@ CLAUDE_HOOK_CMD = "speakeasy claude-hook"
 CLAUDE_ASK_HOOK_CMD = "speakeasy claude-ask-hook"
 CODEX_NOTIFY_LINE = 'notify = ["speakeasy", "codex-notify"]\n'
 PROMPT_NAMES = ("speak.md", "ask.md")
-SERVICE_LABEL = "sh.brew.speakeasy"
+LABEL = "com.jimfleming.speakeasy"
+AGENT_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+BREW_LABEL = "sh.brew.speakeasy"
 
 
 # ---------- config.json ----------
@@ -208,6 +210,16 @@ def _wait_healthy(seconds):
     return False
 
 
+def _wait_down(seconds):
+    """Wait for a previous instance to stop answering."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not _healthy(timeout=1):
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def _run(cmd):
     """Run a command, returning (ok, combined output)."""
     try:
@@ -217,25 +229,68 @@ def _run(cmd):
         return False, str(e)
 
 
+def _agent_program():
+    """The command launchd should run. Prefer the console script on PATH: its
+    path survives upgrades, where sys.executable points into a versioned
+    Cellar directory."""
+    exe = shutil.which("speakeasy")
+    return [exe, "app"] if exe else [sys.executable, "-m", "speakeasy.cli", "app"]
+
+
+def _agent_plist():
+    args = "".join(f"        <string>{a}</string>\n" for a in _agent_program())
+    log = config.DATA_DIR / "speakeasy.log"
+    err = config.DATA_DIR / "speakeasy.err.log"
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>{LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+{args}    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key>
+    <dict><key>SuccessfulExit</key><false/></dict>
+    <key>LimitLoadToSessionType</key><string>Aqua</string>
+    <key>StandardOutPath</key><string>{log}</string>
+    <key>StandardErrorPath</key><string>{err}</string>
+</dict>
+</plist>
+"""
+
+
+def _domain():
+    return f"gui/{os.getuid()}"
+
+
+def _unload_agent(label=LABEL):
+    _run(["launchctl", "bootout", f"{_domain()}/{label}"])
+
+
 def _start_service():
-    """Bring the listener up, reporting each step. `brew services start` can
-    report success while launchd never runs the job, so the result is checked
-    and kickstart is used as the fallback."""
-    if not shutil.which("brew"):
-        print("  no brew on PATH; start it yourself with: speakeasy app")
-        return False
+    """Install and start our own LaunchAgent, then confirm it is really up.
 
-    ok, out = _run(["brew", "services", "start", "speakeasy"])
-    print(f"  brew services start: {'ok' if ok else 'failed'}"
-          + (f" ({out.splitlines()[-1]})" if out and not ok else ""))
-    if _wait_healthy(20):
+    `brew services` is not used: it leaves the label loaded across stop, so a
+    later start finds it loaded and never runs it, reporting success while
+    nothing executes. Owning the agent makes bootout -> bootstrap -> kickstart
+    deterministic."""
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    AGENT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    AGENT_PATH.write_text(_agent_plist(), encoding="utf-8")
+
+    _unload_agent(BREW_LABEL)                      # never let both run
+    _unload_agent()
+    _wait_down(15)                                 # release the port first
+    ok, out = _run(["launchctl", "bootstrap", _domain(), str(AGENT_PATH)])
+    if not ok:
+        print(f"  launchctl bootstrap: {out or 'failed'}")
+    _run(["launchctl", "kickstart", "-k", f"{_domain()}/{LABEL}"])
+    if _wait_healthy(45):
         return True
-
-    print("  listener still down; brew reported success but launchd did not run it")
-    ok, out = _run(["launchctl", "kickstart", "-p",
-                    f"gui/{os.getuid()}/{SERVICE_LABEL}"])
-    print(f"  launchctl kickstart: {out or ('ok' if ok else 'failed')}")
-    return _wait_healthy(30)
+    print(f"  listener did not come up; see {config.DATA_DIR / 'speakeasy.err.log'}")
+    return False
 
 
 def cmd_doctor(argv):
@@ -264,6 +319,8 @@ def cmd_doctor(argv):
                           for l in codex.splitlines()),
         str(CODEX_CONFIG_PATH) + ("" if codex else " (Codex not installed)"))
 
+    row("login item", AGENT_PATH.exists(), str(AGENT_PATH)
+        + ("" if AGENT_PATH.exists() else " (missing: run `speakeasy init`)"))
     listening = _healthy()
     row("listener", listening, f"{config.BIND}:{config.PORT}")
     if not listening and not args.no_start:
@@ -293,9 +350,9 @@ def cmd_init(argv):
     _register_claude(args.force)
     print("4. Codex hooks...")
     _register_codex(args.force)
-    print("4. Starting the listener...")
-    if _healthy() or _start_service():
-        print("  listener is up")
+    print("4. Menu-bar app...")
+    if _start_service():
+        print(f"  running, and set to start at login ({AGENT_PATH.name})")
     else:
         print("  could not start it; run `speakeasy doctor` for details")
     print("\nRestart any running Claude Code / Codex session for the hooks to take effect.")
@@ -307,6 +364,12 @@ def cmd_uninstall(argv):
                     help="also delete config.json (kept by default)")
     args = ap.parse_args(argv)
 
+    print("Stopping the menu-bar app...")
+    _unload_agent()
+    _unload_agent(BREW_LABEL)
+    if AGENT_PATH.exists():
+        AGENT_PATH.unlink()
+        print(f"  removed {AGENT_PATH}")
     print("Removing Claude Code hooks...")
     _unregister_claude()
     print("Removing Codex hooks...")

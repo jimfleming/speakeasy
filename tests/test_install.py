@@ -171,12 +171,48 @@ def test_doctor_passes_when_everything_is_up(tmp_path, monkeypatch, capsys):
     assert "All good" in capsys.readouterr().out
 
 
-def test_doctor_falls_back_to_kickstart_when_brew_lies(monkeypatch, capsys):
-    """brew services start can report success while launchd never runs the job."""
+def test_start_service_owns_the_agent_end_to_end(tmp_path, monkeypatch, capsys):
+    """bootout both labels, wait for the port, bootstrap, kickstart."""
+    agent = tmp_path / "com.jimfleming.speakeasy.plist"
+    monkeypatch.setattr(install, "AGENT_PATH", agent)
+    monkeypatch.setattr(install.config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(install, "_wait_healthy", lambda s: True)
+    monkeypatch.setattr(install, "_wait_down", lambda s: True)
+    monkeypatch.setattr(install.shutil, "which", lambda _: "/opt/homebrew/bin/speakeasy")
     calls = []
-    monkeypatch.setattr(install.shutil, "which", lambda _: "/opt/homebrew/bin/brew")
-    monkeypatch.setattr(install, "_run", lambda cmd: (calls.append(cmd[0:2]), (True, ""))[1])
-    monkeypatch.setattr(install, "_wait_healthy", lambda s: len(calls) > 1)
+    monkeypatch.setattr(install, "_run", lambda cmd: (calls.append(cmd), (True, ""))[1])
+
     assert install._start_service() is True
-    assert calls == [["brew", "services"], ["launchctl", "kickstart"]]
-    assert "launchd did not run it" in capsys.readouterr().out
+    verbs = [c[1] for c in calls]
+    assert verbs == ["bootout", "bootout", "bootstrap", "kickstart"]
+    assert install.BREW_LABEL in calls[0][2]      # brew's label is evicted first
+    assert install.LABEL in calls[1][2]
+
+    plist = agent.read_text()
+    assert "<string>/opt/homebrew/bin/speakeasy</string>" in plist
+    assert "<string>app</string>" in plist
+    assert "<key>RunAtLoad</key><true/>" in plist
+    assert "<key>LimitLoadToSessionType</key><string>Aqua</string>" in plist
+
+
+def test_agent_program_prefers_the_console_script(monkeypatch):
+    """A Cellar path would break on upgrade; the PATH symlink survives."""
+    monkeypatch.setattr(install.shutil, "which", lambda _: "/opt/homebrew/bin/speakeasy")
+    assert install._agent_program() == ["/opt/homebrew/bin/speakeasy", "app"]
+
+
+def test_agent_program_falls_back_without_a_console_script(monkeypatch):
+    monkeypatch.setattr(install.shutil, "which", lambda _: None)
+    prog = install._agent_program()
+    assert prog[1:] == ["-m", "speakeasy.cli", "app"]
+
+
+def test_uninstall_removes_the_agent(tmp_path, monkeypatch):
+    agent = tmp_path / "agent.plist"; agent.write_text("<plist/>")
+    monkeypatch.setattr(install, "AGENT_PATH", agent)
+    monkeypatch.setattr(install, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(install, "_run", lambda cmd: (True, ""))
+    monkeypatch.setattr(install, "_unregister_claude", lambda: None)
+    monkeypatch.setattr(install, "_unregister_codex", lambda: None)
+    install.cmd_uninstall([])
+    assert not agent.exists()

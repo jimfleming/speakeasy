@@ -20,20 +20,14 @@ class Speakeasy < Formula
     bin.install_symlink libexec/"bin/speakeasy"
   end
 
-  service do
-    run [opt_bin/"speakeasy", "app"]
-    keep_alive successful_exit: false
-    log_path var/"log/speakeasy.log"
-    error_log_path var/"log/speakeasy.err.log"
-  end
-
   def caveats
     <<~EOS
-      Wire speakeasy into Claude Code and/or Codex, and seed your API key:
+      Wire speakeasy into Claude Code and/or Codex, seed your API key, and
+      start the menu-bar app:
         speakeasy init
 
-      Then start the menu-bar app (auto-restarts on crash, runs at login):
-        brew services start speakeasy
+      It installs a LaunchAgent so the app runs at login. If the icon does not
+      appear, `speakeasy doctor` reports why.
     EOS
   end
 

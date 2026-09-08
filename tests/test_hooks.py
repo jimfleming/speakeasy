@@ -92,3 +92,28 @@ def test_serve_reports_an_unusable_bind_address(monkeypatch):
         listener.serve()
     assert "cannot bind" in str(exc.value)
     assert "config.json" in str(exc.value)
+
+
+def test_serve_retries_a_port_still_held_by_a_restarting_instance(monkeypatch):
+    """launchd restarts can overlap; a transient EADDRINUSE must not be fatal."""
+    import errno
+    attempts = []
+
+    class Boom(OSError):
+        pass
+
+    def flaky(addr, handler):
+        attempts.append(addr)
+        if len(attempts) < 3:
+            e = OSError(errno.EADDRINUSE, "Address already in use")
+            e.errno = errno.EADDRINUSE
+            raise e
+        raise KeyboardInterrupt          # bound; bail out of serve_forever
+
+    monkeypatch.setattr(listener, "ThreadingHTTPServer", flaky)
+    monkeypatch.setattr(listener.time, "sleep", lambda s: None)
+    try:
+        listener.serve()
+    except KeyboardInterrupt:
+        pass
+    assert len(attempts) == 3
