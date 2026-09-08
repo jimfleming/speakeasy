@@ -4,8 +4,8 @@ class Speakeasy < Formula
   desc "Speak Claude Code / Codex turns aloud via local Kokoro TTS"
   homepage "https://github.com/jimfleming/speakeasy"
   url "https://github.com/jimfleming/speakeasy.git",
-      tag:      "v0.2.1",
-      revision: "5a1a0d75d6c83756e0bca946082138c3ba7cbecd"
+      tag:      "v0.2.2",
+      revision: "6f0796ebca439cdb8ab6cfdd9bcc7e29d99d7f14"
   license "Apache-2.0"
 
   depends_on arch: :arm64
