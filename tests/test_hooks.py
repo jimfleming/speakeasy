@@ -117,3 +117,22 @@ def test_serve_retries_a_port_still_held_by_a_restarting_instance(monkeypatch):
     except KeyboardInterrupt:
         pass
     assert len(attempts) == 3
+
+
+def test_app_runs_as_an_accessory_so_no_dock_icon(monkeypatch):
+    """The framework interpreter defaults to Regular, which shows a Dock icon."""
+    from speakeasy import app as app_mod
+    calls = []
+
+    class FakeNSApplication:
+        @staticmethod
+        def sharedApplication():
+            class _App:
+                def setActivationPolicy_(self, p): calls.append(p)
+            return _App()
+
+    monkeypatch.setattr(app_mod, "NSApplication", FakeNSApplication)
+    monkeypatch.setattr(app_mod.rumps.App, "run", lambda self: None)
+    monkeypatch.setattr(app_mod.rumps.events.before_start, "register", lambda f: None)
+    app_mod.SpeakeasyApp.run(object.__new__(app_mod.SpeakeasyApp))
+    assert calls == [app_mod.NSApplicationActivationPolicyAccessory]

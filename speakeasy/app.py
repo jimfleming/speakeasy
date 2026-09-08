@@ -1,7 +1,8 @@
 """Speakeasy menu-bar app.
 
-Wraps the listener (speakeasy/listener.py) in a rumps menu-bar item. The HTTP
-server runs in a background thread; Kokoro warms asynchronously. Left-click
+Wraps the listener (speakeasy/listener.py) in a rumps menu-bar item, as an
+accessory app: status bar only, no Dock icon. The HTTP server runs in a
+background thread; Kokoro warms asynchronously. Left-click
 toggles mute; right-click (or control-click) opens the menu: mute, speak last
 again, open config, quit.
 """
@@ -12,6 +13,8 @@ import threading
 import rumps
 from AppKit import (
     NSApp,
+    NSApplication,
+    NSApplicationActivationPolicyAccessory,
     NSEventMaskLeftMouseDown,
     NSEventMaskRightMouseDown,
     NSEventModifierFlagControl,
@@ -60,6 +63,8 @@ class SpeakeasyApp(rumps.App):
         threading.Thread(target=self._warm, daemon=True).start()
 
     def run(self):
+        NSApplication.sharedApplication().setActivationPolicy_(
+            NSApplicationActivationPolicyAccessory)
         rumps.events.before_start.register(self._install_clicks)
         super().run()
 
