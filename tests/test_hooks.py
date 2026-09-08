@@ -82,3 +82,13 @@ def test_voice_rotation_falls_back_without_a_session(monkeypatch):
 def test_default_voice_wins_when_rotation_is_off(monkeypatch):
     monkeypatch.setattr(listener.config, "VOICE_ROTATION", False)
     assert {listener.voice_for(f"s{i}") for i in range(50)} == {listener.DEFAULT_VOICE}
+
+
+def test_serve_reports_an_unusable_bind_address(monkeypatch):
+    """A bad `bind` must raise with the config path, not die silently."""
+    import pytest
+    monkeypatch.setattr(listener, "HOST", "no-such-host.invalid")
+    with pytest.raises(OSError) as exc:
+        listener.serve()
+    assert "cannot bind" in str(exc.value)
+    assert "config.json" in str(exc.value)

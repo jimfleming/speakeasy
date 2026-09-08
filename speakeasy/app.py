@@ -6,6 +6,7 @@ toggles mute; right-click (or control-click) opens the menu: mute, speak last
 again, open config, quit.
 """
 import subprocess
+import sys
 import threading
 
 import rumps
@@ -30,6 +31,7 @@ def _sf_symbol(name):
 
 
 IDLE = _sf_symbol("waveform.circle.fill")
+FAILED = _sf_symbol("exclamationmark.triangle.fill")
 WARMING = _sf_symbol("hourglass.circle.fill")
 MUTED = _sf_symbol("waveform.circle")
 
@@ -53,7 +55,8 @@ class SpeakeasyApp(rumps.App):
             None,
             rumps.MenuItem("Open config", callback=self._open_config),
         ]
-        threading.Thread(target=listener.serve, daemon=True).start()
+        self._error = None
+        threading.Thread(target=self._serve, daemon=True).start()
         threading.Thread(target=self._warm, daemon=True).start()
 
     def run(self):
@@ -90,10 +93,20 @@ class SpeakeasyApp(rumps.App):
         if hasattr(self, "_nsapp"):
             self._nsapp.setStatusBarIcon()
 
+    def _serve(self):
+        try:
+            listener.serve()
+        except Exception as e:
+            self._error = str(e)
+            print(f"[app] listener stopped: {e}", file=sys.stderr)
+            self._set_icon(FAILED)
+            self.menu["Mute"].title = "Listener failed, see Open config"
+
     def _warm(self):
         listener.kokoro.warm()
         self._ready = True
-        self._set_icon(MUTED if self._mute.state else IDLE)
+        if self._error is None:
+            self._set_icon(MUTED if self._mute.state else IDLE)
 
     def _toggle_mute(self, sender):
         sender.state = not sender.state

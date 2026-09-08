@@ -14,8 +14,10 @@ class Speakeasy < Formula
   depends_on "python@3.12"
 
   def install
-    venv = virtualenv_create(libexec, "python3.12")
-    venv.pip_install_and_link buildpath
+    virtualenv_create(libexec, "python3.12")
+    system formula_opt_bin("python@3.12")/"python3.12", "-m", "pip",
+           "--python=#{libexec}/bin/python", "install", "--no-cache-dir", buildpath
+    bin.install_symlink libexec/"bin/speakeasy"
   end
 
   service do

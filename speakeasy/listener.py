@@ -321,8 +321,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve():
-    """Build the HTTP server and serve forever."""
-    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    """Build the HTTP server and serve forever. Raises OSError if the
+    configured bind address cannot be used."""
+    try:
+        srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as e:
+        raise OSError(f"cannot bind {HOST}:{PORT} ({e}); "
+                      f"check \"bind\" in {config.CONFIG_PATH}") from e
     print(f"[listener] ready on {HOST}:{PORT}", flush=True)
     try:
         srv.serve_forever()
