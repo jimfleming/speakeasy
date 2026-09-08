@@ -1,0 +1,55 @@
+[project]
+name = "speakeasy"
+dynamic = ["version"]
+description = "Speak Claude Code and Codex turns aloud with a rewrite pass and local Kokoro TTS"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "Jim Fleming" }]
+keywords = ["claude-code", "codex", "tts", "kokoro", "mlx", "macos"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: MacOS X",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "mlx-audio>=0.2",
+    "misaki>=0.7",
+    "spacy>=3.7",
+    "num2words>=0.5",
+    "phonemizer-fork>=3.0",
+    "espeakng-loader>=0.2",
+    "mlx<0.31",
+    "mlx-metal<0.31",
+    "soundfile>=0.12",
+    "numpy>=1.26",
+    "rumps>=0.4.0",
+    "pyobjc-framework-Cocoa>=10",
+]
+
+[project.urls]
+Homepage = "https://github.com/jimfleming/speakeasy"
+Source = "https://github.com/jimfleming/speakeasy"
+Issues = "https://github.com/jimfleming/speakeasy/issues"
+
+[project.scripts]
+speakeasy = "speakeasy.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "speakeasy/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["speakeasy"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

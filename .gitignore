@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+dist/
+build/
+*.egg-info/
+.ruff_cache/
+*.bak
+
+# local secrets
+.env
