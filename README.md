@@ -10,10 +10,15 @@ Hear what a Claude Code or Codex turn did instead of reading it.
 
 ## Install
 
+    brew trust --formula jimfleming/speakeasy/speakeasy
     brew tap jimfleming/speakeasy https://github.com/jimfleming/speakeasy
     brew install jimfleming/speakeasy/speakeasy
     speakeasy init                  # wires up Claude Code + Codex, seeds config + prompts
-    brew services start speakeasy   # runs at login, auto-restarts on crash
+    brew services start speakeasy   # starts the menu-bar app, and runs it at login
+
+Recent Homebrew refuses to load formulae from third-party taps until you trust
+them, and reports it as `invalid syntax in tap!`, so the `brew trust` line comes
+first. Older Homebrew has no `brew trust` and does not need it.
 
 `speakeasy init` backs up whatever it touches and never clobbers an existing
 entry. Restart any running Claude Code or Codex session to pick up the hook.
