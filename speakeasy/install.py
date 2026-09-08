@@ -7,8 +7,13 @@ import argparse
 import copy
 import getpass
 import json
+import os
 import shutil
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from speakeasy import config
@@ -22,6 +27,7 @@ CLAUDE_HOOK_CMD = "speakeasy claude-hook"
 CLAUDE_ASK_HOOK_CMD = "speakeasy claude-ask-hook"
 CODEX_NOTIFY_LINE = 'notify = ["speakeasy", "codex-notify"]\n'
 PROMPT_NAMES = ("speak.md", "ask.md")
+SERVICE_LABEL = "sh.brew.speakeasy"
 
 
 # ---------- config.json ----------
@@ -182,6 +188,95 @@ def _unregister_codex():
         print(f"  removed Codex notify hook from {CODEX_CONFIG_PATH}")
 
 
+# ---------- doctor ----------
+
+def _healthy(timeout=2):
+    url = f"http://{config.BIND}:{config.PORT}/health"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return json.loads(r.read() or b"{}").get("ok") is True
+    except Exception:
+        return False
+
+
+def _wait_healthy(seconds):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if _healthy():
+            return True
+        time.sleep(1)
+    return False
+
+
+def _run(cmd):
+    """Run a command, returning (ok, combined output)."""
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        return p.returncode == 0, (p.stdout + p.stderr).strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+
+
+def _start_service():
+    """Bring the listener up, reporting each step. `brew services start` can
+    report success while launchd never runs the job, so the result is checked
+    and kickstart is used as the fallback."""
+    if not shutil.which("brew"):
+        print("  no brew on PATH; start it yourself with: speakeasy app")
+        return False
+
+    ok, out = _run(["brew", "services", "start", "speakeasy"])
+    print(f"  brew services start: {'ok' if ok else 'failed'}"
+          + (f" ({out.splitlines()[-1]})" if out and not ok else ""))
+    if _wait_healthy(20):
+        return True
+
+    print("  listener still down; brew reported success but launchd did not run it")
+    ok, out = _run(["launchctl", "kickstart", "-p",
+                    f"gui/{os.getuid()}/{SERVICE_LABEL}"])
+    print(f"  launchctl kickstart: {out or ('ok' if ok else 'failed')}")
+    return _wait_healthy(30)
+
+
+def cmd_doctor(argv):
+    ap = argparse.ArgumentParser(prog="speakeasy doctor")
+    ap.add_argument("--no-start", action="store_true",
+                    help="report only; do not try to start the listener")
+    args = ap.parse_args(argv)
+
+    def row(name, ok, detail=""):
+        print(f"  {name:<14} {'ok  ' if ok else 'FAIL'}  {detail}")
+        return ok
+
+    print("Checks...")
+    good = row("config", CONFIG_PATH.exists(), str(CONFIG_PATH))
+    good &= row("api key", bool(config.API_KEY),
+                "set" if config.API_KEY else "missing: set rewrite.api_key")
+    prompts = [n for n in PROMPT_NAMES if (config.PROMPTS_DIR / n).exists()]
+    row("prompts", True, f"{len(prompts)}/{len(PROMPT_NAMES)} in {config.PROMPTS_DIR}"
+        + ("" if len(prompts) == len(PROMPT_NAMES) else " (packaged copies used)"))
+    settings = _load_json(CLAUDE_SETTINGS_PATH)
+    hooks = settings.get("hooks", {})
+    good &= row("Claude hook", _hook_present(hooks.get("Stop", []), None, CLAUDE_HOOK_CMD),
+                str(CLAUDE_SETTINGS_PATH))
+    codex = CODEX_CONFIG_PATH.read_text(encoding="utf-8") if CODEX_CONFIG_PATH.exists() else ""
+    row("Codex hook", any(_is_notify_line(l) and "speakeasy" in l
+                          for l in codex.splitlines()),
+        str(CODEX_CONFIG_PATH) + ("" if codex else " (Codex not installed)"))
+
+    listening = _healthy()
+    row("listener", listening, f"{config.BIND}:{config.PORT}")
+    if not listening and not args.no_start:
+        print("Starting the listener...")
+        listening = _start_service()
+        row("listener", listening, f"{config.BIND}:{config.PORT}")
+    good &= listening
+
+    print("\nAll good." if good else
+          "\nSomething above needs attention.")
+    return 0 if good else 1
+
+
 # ---------- entry points ----------
 
 def cmd_init(argv):
@@ -198,8 +293,12 @@ def cmd_init(argv):
     _register_claude(args.force)
     print("4. Codex hooks...")
     _register_codex(args.force)
-    print("\nDone. Start speakeasy with: brew services start speakeasy")
-    print("Restart any running Claude Code / Codex session for the hooks to take effect.")
+    print("4. Starting the listener...")
+    if _healthy() or _start_service():
+        print("  listener is up")
+    else:
+        print("  could not start it; run `speakeasy doctor` for details")
+    print("\nRestart any running Claude Code / Codex session for the hooks to take effect.")
 
 
 def cmd_uninstall(argv):

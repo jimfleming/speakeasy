@@ -134,3 +134,49 @@ def test_uninstall_without_purge_keeps_prompt_overrides(tmp_path, monkeypatch):
     install._seed_prompts(False)
     install.cmd_uninstall([])
     assert (tmp_path / "prompts" / "speak.md").exists()
+
+
+def test_healthy_is_false_when_nothing_is_listening(monkeypatch):
+    monkeypatch.setattr(install.config, "PORT", 1)     # nothing listens on port 1
+    assert install._healthy(timeout=1) is False
+
+
+def test_healthy_parses_the_health_payload(monkeypatch):
+    import contextlib, io
+
+    @contextlib.contextmanager
+    def fake_urlopen(url, timeout=None):
+        yield io.BytesIO(b'{"ok": true}')
+    monkeypatch.setattr(install.urllib.request, "urlopen", fake_urlopen)
+    assert install._healthy() is True
+
+
+def test_doctor_reports_a_down_listener_without_starting_it(monkeypatch, capsys):
+    monkeypatch.setattr(install, "_healthy", lambda *a, **k: False)
+    monkeypatch.setattr(install, "_start_service",
+                        lambda: pytest.fail("--no-start must not start anything"))
+    assert install.cmd_doctor(["--no-start"]) == 1
+    out = capsys.readouterr().out
+    assert "listener" in out and "FAIL" in out
+    assert "needs attention" in out
+
+
+def test_doctor_passes_when_everything_is_up(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(install, "CONFIG_PATH", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text("{}")
+    monkeypatch.setattr(install.config, "API_KEY", "sk-test")
+    monkeypatch.setattr(install, "_healthy", lambda *a, **k: True)
+    monkeypatch.setattr(install, "_hook_present", lambda *a, **k: True)
+    assert install.cmd_doctor([]) == 0
+    assert "All good" in capsys.readouterr().out
+
+
+def test_doctor_falls_back_to_kickstart_when_brew_lies(monkeypatch, capsys):
+    """brew services start can report success while launchd never runs the job."""
+    calls = []
+    monkeypatch.setattr(install.shutil, "which", lambda _: "/opt/homebrew/bin/brew")
+    monkeypatch.setattr(install, "_run", lambda cmd: (calls.append(cmd[0:2]), (True, ""))[1])
+    monkeypatch.setattr(install, "_wait_healthy", lambda s: len(calls) > 1)
+    assert install._start_service() is True
+    assert calls == [["brew", "services"], ["launchctl", "kickstart"]]
+    assert "launchd did not run it" in capsys.readouterr().out

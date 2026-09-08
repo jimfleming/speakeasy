@@ -4,6 +4,7 @@
     speakeasy listener           run the listener without the menu bar
     speakeasy speak <file> ...   dev tool: run one rewrite+say pass, no server
     speakeasy init               wire up Claude Code + Codex, seed config.json
+    speakeasy doctor             check config, hooks and listener; start it if down
     speakeasy uninstall          reverse `init`
     speakeasy claude-hook        (used BY Claude Code's Stop hook, not by you)
     speakeasy claude-ask-hook    (used BY Claude Code's AskUserQuestion hook)
@@ -11,7 +12,7 @@
 """
 import sys
 
-USAGE = ("usage: speakeasy {app|listener|speak|init|uninstall|"
+USAGE = ("usage: speakeasy {app|listener|speak|init|doctor|uninstall|"
          "claude-hook|claude-ask-hook|codex-notify} ...")
 
 
@@ -35,6 +36,9 @@ def main():
     elif cmd == "init":
         from speakeasy import install
         install.cmd_init(rest)
+    elif cmd == "doctor":
+        from speakeasy import install
+        sys.exit(install.cmd_doctor(rest))
     elif cmd == "uninstall":
         from speakeasy import install
         install.cmd_uninstall(rest)
