@@ -6,27 +6,20 @@ Hear what a Claude Code or Codex turn did instead of reading it.
 - Announces blocking questions (Claude Code's `AskUserQuestion`) so you know to come back.
 - Gives every concurrent session its own voice.
 - Lives in the menu bar: left-click mutes, right-click for Speak last again / Open config / Quit.
-- Speech is local. Kokoro on the Apple-Silicon GPU, nothing sent anywhere.
+- Speech is local — Kokoro on the Apple-Silicon GPU.
 
 ## Install
 
     brew trust --formula jimfleming/speakeasy/speakeasy
     brew tap jimfleming/speakeasy https://github.com/jimfleming/speakeasy
     brew install jimfleming/speakeasy/speakeasy
-    speakeasy init                  # wires up Claude Code + Codex, seeds config
-                                    # and prompts, and starts the menu-bar app
+    speakeasy init
 
-Recent Homebrew refuses to load formulae from third-party taps until you trust
-them, and reports it as `invalid syntax in tap!`, so the `brew trust` line comes
-first. Older Homebrew has no `brew trust` and does not need it.
+`init` wires up Claude Code and Codex and starts the menu-bar app at login. It
+backs up anything it touches. Restart any running session to pick up the hook.
 
-`speakeasy init` backs up whatever it touches and never clobbers an existing
-entry. Restart any running Claude Code or Codex session to pick up the hook.
-To remove: `speakeasy uninstall`, then `brew uninstall speakeasy`.
-
-`speakeasy init` installs a LaunchAgent so the app starts at login, and
-confirms the listener answers before it returns. `speakeasy doctor` re-runs
-those checks any time, and restarts the app if it is down.
+`speakeasy uninstall` reverses all of it. `speakeasy doctor` is there for when
+it goes quiet.
 
 ## Requirements
 
@@ -38,15 +31,16 @@ first line takes a while; the menu-bar icon shows an hourglass until it is ready
 
 A hook ships the finished turn to a local listener, which does two things:
 
-1. **Rewrite** — condenses the turn to a single line with an LLM over an
-   OpenAI-compatible API. This defaults to OpenRouter, so **the turn digest
-   leaves your machine**: your prompts, the assistant's prose, and the names of
-   the tools it called. Raw tool output is stripped first and never sent. Point
-   `rewrite.base_url` at Ollama or LM Studio to keep it all local.
-2. **Speak** — Kokoro TTS through mlx-audio, on the GPU. Always local.
+1. **Rewrite** — condenses the turn to a single line, with an LLM over an
+   OpenAI-compatible API.
+2. **Speak** — Kokoro TTS through mlx-audio, on the GPU.
 
-The last 50 turns are kept in the data dir, as the verbatim digests that were
-sent, so a repeated or continued turn is not narrated twice.
+What reaches the rewrite endpoint is the digest: your prompts, the assistant's
+prose, and the names of the tools it called. Raw tool output is stripped first.
+Point `rewrite.base_url` at Ollama or LM Studio to keep it all local.
+
+The last 50 digests are kept, so a repeated or continued turn is not narrated
+twice.
 
 ## Configuration
 
@@ -73,7 +67,7 @@ Edit `~/Library/Application Support/Speakeasy/config.json`, or use the menu's
 - **`voice_rotation`** — per-session voices, so you can tell sessions apart by
   ear. Set `false` to use `default_voice` (any Kokoro voice) everywhere.
 - **`pronunciations`** — maps a written name to how it should be said, e.g.
-  `{"k8s": "kubernetes"}`. For names TTS would otherwise spell out.
+  `{"k8s": "kubernetes"}`.
 - **`bind` / `port`** — **the listener has no authentication.** Anything that
   can reach the port can make this machine speak. Only move it off `127.0.0.1`
   on a network you trust.
@@ -81,11 +75,10 @@ Edit `~/Library/Application Support/Speakeasy/config.json`, or use the menu's
 Any key can be overridden for one run with a `SPEAKEASY_` environment variable
 (`SPEAKEASY_MODEL`, `SPEAKEASY_PORT`, `SPEAKEASY_CONFIG`, and so on).
 
-`speakeasy init` also drops the two prompts that shape the spoken line next to
-`config.json`, as plain Markdown. They are the main thing worth tuning, and
-they are read from there, so edits stick across upgrades. Delete one and it is
-restored from the packaged copy on the next turn, which is how you reset it;
-`speakeasy init --force` resets both at once.
+The two prompts that shape the spoken line sit next to `config.json` as plain
+Markdown. They are the main thing worth tuning, and edits stick across
+upgrades. Delete one to restore it from the packaged copy; `speakeasy init
+--force` resets both.
 
 ## Development
 
@@ -95,13 +88,8 @@ restored from the packaged copy on the next turn, which is how you reset it;
     uv run speakeasy app        # menu-bar app; also: init / listener / speak
     uv run pytest
 
-A clone behaves identically to the Homebrew install, prompts included: both
-read them from the data dir. To work on the prompts this repo ships, point
-`SPEAKEASY_PROMPTS_DIR` back at the clone so your edits are the ones used, and
-`--no-play` to print the line instead of speaking it:
+A clone reads prompts from the data dir just like the Homebrew install. To edit
+the prompts this repo ships, point `SPEAKEASY_PROMPTS_DIR` back at the clone:
 
     SPEAKEASY_PROMPTS_DIR=speakeasy/prompts \
         uv run speakeasy speak ~/.claude/projects/<project>/<session>.jsonl --no-play
-
-Without that variable you are editing the copy in the data dir, which is what
-a user edits.
